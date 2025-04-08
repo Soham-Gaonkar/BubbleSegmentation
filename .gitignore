@@ -1,0 +1,16 @@
+__pycache__/
+*.ckpt
+*.log
+BubbleSegmentation/logs/
+.env
+venv/
+
+BubbleSegmentation/code_files/test_results/
+Data/
+BubbleSegmentation/logs/
+checkpoints/
+.lightning_studio/
+.idea
+.vscode
+
+Data/
