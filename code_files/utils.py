@@ -8,6 +8,16 @@ import cv2
 import re
 from glob import glob
 
+def freeze_resnet_layers(model, freeze_until="layer2"):
+    freeze = True
+    for name, child in model.named_children():
+        if freeze:
+            for param in child.parameters():
+                param.requires_grad = False
+        if name == freeze_until:
+            freeze = False
+
+
 def plot_metrics_vs_pulses(metrics_csv_path, save_dir, experiment_name):
     """
     Reads metrics from CSV and generates plots similar to research paper figures.

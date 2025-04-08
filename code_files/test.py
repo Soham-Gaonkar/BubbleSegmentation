@@ -9,10 +9,6 @@ from datetime import datetime
 import warnings
 from PIL import Image # Needed for BILINEAR/NEAREST constants if used directly
 from torchvision import transforms # Needed by dataloader functions
-import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 import cv2
 import re
 from glob import glob
@@ -119,7 +115,7 @@ def evaluate(model, test_loader, criterion, config):
     os.makedirs(vis_folder, exist_ok=True)
     print(f"Saving visualizations to: {vis_folder}")
 
-    filename_pattern = r't3Label(\d+)_(\d+)_(\d+)'
+    filename_pattern = r't3US(\d+)_(\d+)_(\d+)'
 
     with torch.no_grad():
         for idx, batch_data in enumerate(tqdm(test_loader, desc="Testing")):
@@ -148,14 +144,25 @@ def evaluate(model, test_loader, criterion, config):
             match = re.match(filename_pattern, filename)
             pulses = int(match.group(1)) * 20 if match else None
 
-            # Compute metrics
+            # Compute metrics and ablation area
             try:
+                pred_prob = torch.sigmoid(pred_logits)
+                pred_binary = (pred_prob > 0.5).float()
+
                 metrics = calculate_all_metrics(pred_logits, target.float(), threshold=0.5)
                 metrics['pulses'] = pulses
                 metrics['filename'] = filename
+
+                # Compute ablation area from prediction
+                pred_np = extract_2d_slice(pred_binary)
+                pixel_area_mm2 = 0.0025  # Adjust if needed
+                ablation_area = np.sum(pred_np) * pixel_area_mm2
+                metrics['ablation_area'] = ablation_area
+
                 sample_metrics_list.append(metrics)
             except Exception as e:
                 print(f"Error calculating metrics for test batch {idx+1}: {e}")
+
 
             # Visualization preparation
             pred_prob = torch.sigmoid(pred_logits)
@@ -194,7 +201,8 @@ def evaluate(model, test_loader, criterion, config):
         print("ERROR: No metrics calculated.")
         return {"Test_Loss": total_test_loss / num_batches if num_batches > 0 else 0.0}
 
-    avg_metrics = metrics_df.mean(axis=0, skipna=True).to_dict()
+    numeric_cols = metrics_df.select_dtypes(include=[np.number]).columns
+    avg_metrics = metrics_df[numeric_cols].mean(axis=0, skipna=True).to_dict()
     avg_metrics["Test_Loss"] = total_test_loss / num_batches
 
     return avg_metrics

@@ -15,19 +15,20 @@ class Config:
 
     # Training
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    LEARNING_RATE = float(os.getenv("LEARNING_RATE", 3e-4))  
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))             
-    NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 2))           
+    LEARNING_RATE = float(os.getenv("LEARNING_RATE", 1e-4))  
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 4))             
+    NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 30))           
     WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", 1e-5))
 
     # Optimizer
     OPTIMIZER = os.getenv("OPTIMIZER", "Adam")
     USE_SCHEDULER = os.getenv("USE_SCHEDULER", "True").lower() == "true"
     SGD_MOMENTUM = float(os.getenv("SGD_MOMENTUM", 0.9))
-    SCHEDULER_STEP_SIZE = int(os.getenv("SCHEDULER_STEP_SIZE", 20))
+    SCHEDULER_STEP_SIZE = int(os.getenv("SCHEDULER_STEP_SIZE", 100))
     SCHEDULER_GAMMA = float(os.getenv("SCHEDULER_GAMMA", 0.1))
 
     # Model
+    # Options: ResNet18CNN, AttentionUNet, DeepLabV3Plus, ConvLSTM
     MODEL_NAME = os.getenv("MODEL_NAME", "ResNet18CNN")
     SEQUENCE_LENGTH = 3 if MODEL_NAME == "ConvLSTM" else 1
     PRETRAINED = os.getenv("PRETRAINED", "False").lower() == "true"
@@ -38,11 +39,34 @@ class Config:
     CONVLSTM_BATCH_FIRST = True
 
     # Loss
-    LOSS_FN = os.getenv("LOSS_FN", "DiceFocalLoss")
+    # Options: DiceFocalLoss, DiceLoss, AsymmetricFocalTverskyLoss, SoftIoULoss
+    LOSS_FN = os.getenv("LOSS_FN", "AsymmetricFocalTverskyLoss")
     LOSS_ALPHA = float(os.getenv("LOSS_ALPHA", 0.3))
     LOSS_BETA = float(os.getenv("LOSS_BETA", 0.7))
     LOSS_GAMMA = float(os.getenv("LOSS_GAMMA", 0.75))
     LOSS_SMOOTH = float(os.getenv("LOSS_SMOOTH", 1e-5))
+
+    # Early stopping settings
+    EARLY_STOPPING = True
+    PATIENCE = 5            # Number of epochs to wait before stopping
+    DELTA = 1e-5           # Minimum change in validation loss to qualify as improvement
+
+    SPLIT_TYPE = "pulse_dataset"  # Options: random, pulse, dataset, pulse_dataset
+    HOLDOUT_DATASETS = [5]        # Dataset numbers to hold out
+    HOLDOUT_PULSES = [30, 50, 70 , 90] # Pulse numbers to hold out
+
+    # SPLIT_TYPE = "random"  # or "pulse_dataset" or "dataset"
+    VAL_RATIO = 0.10
+    # HOLDOUT_DATASETS = []
+    # HOLDOUT_PULSES = []
+
+    USE_AUGMENTATION = True
+
+    DROPOUT_PROB = 0.5
+    # PRETRAINED = os.getenv("PRETRAINED", "False").lower() == "true"
+    PRETRAINED = True
+    FREEZE_BACKBONE = True
+    FREEZE_UNTIL = 'encoder_layer2'
 
     # Logging
     SAVE_MODEL = os.getenv("SAVE_MODEL", "True").lower() == "true"

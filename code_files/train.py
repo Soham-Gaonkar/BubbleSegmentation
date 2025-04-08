@@ -16,6 +16,7 @@ from loss import *  # Imports __init__.py which should import all loss classes
 # Import the consolidated metrics function
 from metric import calculate_all_metrics
 from dataloader import create_ultrasound_dataloaders
+from utils import freeze_resnet_layers  # <== Add at top
 
 
 # Suppress specific warnings if needed
@@ -36,15 +37,19 @@ def get_model(config):
         model = ResNet18CNN(
             in_channels=in_channels,
             num_classes=num_classes,
-            pretrained=config.PRETRAINED # Read from config
+            pretrained=config.PRETRAINED,
+            dropout_prob=config.DROPOUT_PROB  # <== Pass this
         )
-        print(f"ResNet18CNN - Pretrained: {config.PRETRAINED}")
+        print(f"ResNet18CNN - Pretrained: {config.PRETRAINED}, Dropout: {config.DROPOUT_PROB}")
 
-    elif model_name == "AttentionUNet":
-        model = AttentionUNet(
-            in_channels=in_channels,
-            num_classes=num_classes
-        )
+        if config.FREEZE_BACKBONE:
+            freeze_resnet_layers(model, freeze_until=config.FREEZE_UNTIL)
+            print(f"Freezing ResNet layers up to: {config.FREEZE_UNTIL}")
+        elif model_name == "AttentionUNet":
+            model = AttentionUNet(
+                in_channels=in_channels,
+                num_classes=num_classes
+            )
 
     elif model_name == "DeepLabV3Plus":
         model = DeepLabV3Plus(
@@ -55,6 +60,12 @@ def get_model(config):
         )
         print(f"DeepLabV3+ - Output Stride: {config.DEEPLAB_OUTPUT_STRIDE}, Pretrained: {config.PRETRAINED}")
 
+    elif model_name == "AttentionUNet":
+        model = AttentionUNet(
+            in_channels=in_channels,
+            num_classes=num_classes
+        )
+        
     elif model_name == "ConvLSTM":
         # Ensure dataloader.py provides sequential data (B, T, C, H, W)
         # Ensure config.SEQUENCE_LENGTH > 1
@@ -135,6 +146,29 @@ def train_one_epoch(model, optimizer, criterion, train_loader, epoch, config, wr
         data, targets , filename = batch_data
         data, targets = data.to(config.DEVICE), targets.to(config.DEVICE)
 
+        # --- NaN/Corruption Check ---
+        if torch.isnan(data).any():
+            print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ NaNs in input images!")
+            break
+
+        if torch.isnan(targets).any():
+            print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ NaNs in target labels!")
+            break
+
+        if targets.max() > 1 or targets.min() < 0:
+            print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Target labels out of range: min={targets.min().item()}, max={targets.max().item()}")
+            break
+
+        if torch.isinf(data).any():
+            print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Infs detected in input images!")
+            break
+
+        if torch.isinf(targets).any():
+            print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Infs detected in target labels!")
+            break
+
+
+
         # --- Input Shape Check (especially relevant if ConvLSTM is added back) ---
         expected_dims = 5 if config.MODEL_NAME == "ConvLSTM" else 4
         if data.ndim != expected_dims:
@@ -151,7 +185,8 @@ def train_one_epoch(model, optimizer, criterion, train_loader, epoch, config, wr
         # Forward
         predictions = model(data)
         loss = criterion(predictions, targets)
-
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 
+        
         # Backward and optimize
         optimizer.zero_grad()
         loss.backward()
@@ -206,6 +241,11 @@ def validate_one_epoch(model, criterion, val_loader, epoch, config, writer):
 
             # Forward
             predictions = model(data)
+            if torch.isnan(predictions).any():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] NaNs in predictions!")
+            if (predictions.abs() > 1e6).any():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] Extremely large logits in predictions!")
+
             loss = criterion(predictions, targets)
             total_val_loss += loss.item()
 
@@ -328,7 +368,8 @@ def main():
     label_dir=config.LABEL_DIR,
     batch_size=config.BATCH_SIZE,
     image_size=config.IMAGE_SIZE,
-    sequence_length=config.SEQUENCE_LENGTH
+    sequence_length=config.SEQUENCE_LENGTH,
+    use_augmentation=config.USE_AUGMENTATION
 )
 
     # length of dataset - train - test - val
@@ -394,6 +435,7 @@ def main():
 
     # --- Training Loop ---
     best_val_loss = float('inf')
+    epochs_no_improve = 0 # Counter for early stopping
 
     for epoch in range(config.NUM_EPOCHS):
         train_loss = train_one_epoch(model, optimizer, criterion, train_loader, epoch, config, writer)
@@ -428,11 +470,28 @@ def main():
                 save_checkpoint(model, optimizer, filename=ckpt_path)
 
             # Save the best model based on validation loss
-            if val_loss < best_val_loss:
+            # if val_loss < best_val_loss:
+            #     best_val_loss = val_loss
+            #     best_path = os.path.join(model_ckpt_dir, "best.pth.tar")
+            #     save_checkpoint(model, optimizer, filename=best_path)
+            #     print(f"[*] New best model saved at {best_path} (Val Loss: {best_val_loss:.4f})")
+
+            if val_loss < best_val_loss - config.DELTA:
                 best_val_loss = val_loss
+                epochs_no_improve = 0
                 best_path = os.path.join(model_ckpt_dir, "best.pth.tar")
                 save_checkpoint(model, optimizer, filename=best_path)
                 print(f"[*] New best model saved at {best_path} (Val Loss: {best_val_loss:.4f})")
+            else:
+                epochs_no_improve += 1
+                print(f"[!] No improvement in val loss for {epochs_no_improve} epoch(s).")
+
+                # --- Early Stopping ---
+                if config.EARLY_STOPPING and epochs_no_improve >= config.PATIENCE:
+                    print(f"\n[Early Stopping] No improvement for {config.PATIENCE} epochs. Stopping training.")
+                    break
+
+
 
         # --- Visualize Predictions ---
         if (epoch + 1) % config.VISUALIZE_EVERY == 0:

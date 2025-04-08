@@ -7,6 +7,54 @@ import numpy as np
 from torchvision import transforms
 from config import Config
 from torchvision import transforms
+import random
+
+def extract_pulse_and_dataset(filename: str):
+    match = re.match(r't3US(\d+)_(\d+)_(\d+)', filename)
+    if match:
+        pulse = int(match.group(1))
+        dataset = int(match.group(3))
+        return pulse, dataset
+    return -1, -1
+
+def smart_split(
+    all_filenames,
+    split_type="pulse_dataset",
+    holdout_datasets=[5],
+    holdout_pulses=[80, 90, 100],
+    val_ratio=0.2,
+    seed=42
+):
+    random.seed(seed)
+    train_files, val_files = [], []
+
+    for f in all_filenames:
+        pulse, dataset = extract_pulse_and_dataset(f)
+        if split_type == "random":
+            random.shuffle(all_filenames)
+            val_size = int(val_ratio * len(all_filenames))
+            val_files = all_filenames[:val_size]
+            train_files = all_filenames[val_size:]
+        elif split_type == "pulse":
+            if pulse in holdout_pulses:
+                val_files.append(f)
+            else:
+                train_files.append(f)
+        elif split_type == "dataset":
+            if dataset in holdout_datasets:
+                val_files.append(f)
+            else:
+                train_files.append(f)
+        elif split_type == "pulse_dataset":
+            if dataset in holdout_datasets or pulse in holdout_pulses:
+                val_files.append(f)
+            else:
+                train_files.append(f)
+        else:
+            raise ValueError(f"Unsupported split_type: {split_type}")
+    
+    return {"train": train_files, "val": val_files}
+
 
 
 class UltrasoundSegmentationDataset(Dataset):
@@ -14,7 +62,7 @@ class UltrasoundSegmentationDataset(Dataset):
     Dataset for both single-frame and sequence-based ultrasound segmentation.
     """
 
-    def __init__(self, image_dir, label_dir, transform=None, sequence_length=1):
+    def __init__(self, image_dir, label_dir, transform=None, sequence_length=1, allowed_image_files=None):
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.transform = transform
@@ -22,6 +70,19 @@ class UltrasoundSegmentationDataset(Dataset):
 
         self.image_files = sorted([f for f in os.listdir(image_dir) if f.endswith('.jpg')])
         self.label_files = [f for f in os.listdir(label_dir) if f.endswith('.png') or f.endswith('.jpg')]
+
+        all_image_files = sorted([f for f in os.listdir(image_dir) if f.endswith('.jpg')])
+
+        # ✅ Only keep allowed files
+        if allowed_image_files is not None:
+            self.image_files = [f for f in all_image_files if f in allowed_image_files]
+        else:
+            self.image_files = all_image_files
+
+        self.label_files = [f for f in os.listdir(label_dir) if f.endswith('.png') or f.endswith('.jpg')]
+        
+
+
 
         # Build ID to label file mapping
         self.label_dict = {
@@ -118,12 +179,26 @@ class Resize:
         label = label.resize(self.size, Image.NEAREST)
         return image, label
 
-# class PILToTensor:
-#     """Convert PIL image and mask to torch.Tensor."""
-#     def __call__(self, image, label):
-#         image = transforms.ToTensor()(image)
-#         label = transforms.ToTensor()(label)
-#         return image, label
+class RandomHorizontalFlip:
+    def __init__(self, p=0.5):
+        self.p = p
+
+    def __call__(self, image, label):
+        if random.random() < self.p:
+            image = transforms.functional.hflip(image)
+            label = transforms.functional.hflip(label)
+        return image, label
+
+class RandomRotation:
+    def __init__(self, degrees):
+        self.degrees = degrees
+
+    def __call__(self, image, label):
+        angle = random.uniform(-self.degrees, self.degrees)
+        image = transforms.functional.rotate(image, angle)
+        label = transforms.functional.rotate(label, angle)
+        return image, label
+
 
 # PILToTensor class (only this part needs to be changed)
 class PILToTensor:
@@ -141,35 +216,125 @@ class Grayscale:
         image = image.convert('L')
         return image, label
 
-def create_ultrasound_dataloaders(image_dir, label_dir, batch_size=16, val_split=0.10, num_workers=4, image_size=(1024, 256), sequence_length=1):
+def _verify_split(samples, tag):
+    pulses = set()
+    datasets = set()
+    for s in samples:
+        filename = s[0][-1]  # get the last image in sequence
+        pulse, dataset = extract_pulse_and_dataset(filename)
+        pulses.add(pulse)
+        datasets.add(dataset)
+    print(f"\n🔍 {tag} Summary:")
+    print(f"Pulses in {tag}: {sorted(pulses)}")
+    print(f"Datasets in {tag}: {sorted(datasets)}")
+    return pulses, datasets
+
+def create_ultrasound_dataloaders(image_dir, label_dir, batch_size=16, val_split=0.10, num_workers=4, image_size=(1024, 256), sequence_length=1, use_augmentation=True):
     """
     Create train and val DataLoaders with correct shape depending on model type.
     """
 
 
-    joint_transforms = JointTransform([Resize(image_size)])
-    tensor_transforms = JointTransform([Grayscale(), PILToTensor()])
+    # joint_transforms = JointTransform([Resize(image_size)])
+    # tensor_transforms = JointTransform([Grayscale(), PILToTensor()])
 
-    full_dataset = UltrasoundSegmentationDataset(
-        image_dir=image_dir,
-        label_dir=label_dir,
-        transform=tensor_transforms,
-        sequence_length=sequence_length
+    # Always applied (for val and train after augmentation)
+    base_transforms = [Grayscale(), PILToTensor()]
+
+    if use_augmentation:
+        train_transform = JointTransform([
+            Resize(image_size),
+            RandomHorizontalFlip(0.5),
+            RandomRotation(10),
+            *base_transforms
+        ])
+    else:
+        train_transform = JointTransform([
+            Resize(image_size),
+            *base_transforms
+        ])
+
+    # Val transform — no augmentation
+    val_transform = JointTransform([
+        Resize(image_size),
+        *base_transforms
+    ])
+
+
+    # full_dataset = UltrasoundSegmentationDataset(
+    #     image_dir=image_dir,
+    #     label_dir=label_dir,
+    #     transform=tensor_transforms,
+    #     sequence_length=sequence_length
+    # )
+
+    # dataset_size = len(full_dataset)
+    # val_size = int(val_split * dataset_size)
+    # train_size = dataset_size - val_size
+    
+    # print('dataset size:',dataset_size)
+    # print('val_size:',val_size)
+    # print('train_size:',train_size)
+
+    # train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
+
+    all_image_files = sorted([f for f in os.listdir(image_dir) if f.endswith('.jpg')])
+
+    split_result = smart_split(
+        all_filenames=all_image_files,
+        split_type=Config.SPLIT_TYPE,            # <- Add to config.py: e.g., "pulse_dataset"
+        holdout_datasets=Config.HOLDOUT_DATASETS,  # <- e.g., [5]
+        holdout_pulses=Config.HOLDOUT_PULSES,      # <- e.g., [80, 90, 100]
+        val_ratio=Config.VAL_RATIO,
+        seed=42
     )
 
-    dataset_size = len(full_dataset)
-    val_size = int(val_split * dataset_size)
-    train_size = dataset_size - val_size
-    
-    print('dataset size:',dataset_size)
-    print('val_size:',val_size)
-    print('train_size:',train_size)
+    # train_dataset = UltrasoundSegmentationDataset(
+    #     image_dir=image_dir,
+    #     label_dir=label_dir,
+    #     transform=tensor_transforms,
+    #     sequence_length=sequence_length,
+    #     allowed_image_files=split_result["train"]
+    # )
+    # val_dataset = UltrasoundSegmentationDataset(
+    #     image_dir=image_dir,
+    #     label_dir=label_dir,
+    #     transform=tensor_transforms,
+    #     sequence_length=sequence_length,
+    #     allowed_image_files=split_result["val"]
+    # )
 
-    train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
+    train_dataset = UltrasoundSegmentationDataset(
+        image_dir=image_dir,
+        label_dir=label_dir,
+        transform=train_transform,
+        sequence_length=sequence_length,
+        allowed_image_files=split_result["train"]
+    )
 
-    # Set transforms
-    train_dataset.dataset.transform = tensor_transforms
-    val_dataset.dataset.transform = tensor_transforms
+    val_dataset = UltrasoundSegmentationDataset(
+        image_dir=image_dir,
+        label_dir=label_dir,
+        transform=val_transform,
+        sequence_length=sequence_length,
+        allowed_image_files=split_result["val"]
+    )
+
+
+    # # Overwrite .samples with filtered filenames
+    # train_dataset.samples = [s for s in train_dataset.samples if s[0][-1] in split_result["train"]]
+    # val_dataset.samples = [s for s in val_dataset.samples if s[0][-1] in split_result["val"]]
+
+    # ✅ Set transforms directly
+    # train_dataset.transform = tensor_transforms
+    # val_dataset.transform = tensor_transforms
+
+    train_dataset.transform = train_transform
+    val_dataset.transform = val_transform
+
+    print('-'*50)
+    print(f"Final dataset sizes -> Train: {len(train_dataset)}, Val: {len(val_dataset)}")
+    print('-'*50)
 
     train_loader = DataLoader(
         train_dataset,
@@ -187,6 +352,23 @@ def create_ultrasound_dataloaders(image_dir, label_dir, batch_size=16, val_split
         pin_memory=True
     )
 
+    # comment the below code - this is only for verificaiton of split
+    train_pulses, train_datasets = _verify_split(train_dataset.samples, "Train")
+    val_pulses, val_datasets = _verify_split(val_dataset.samples, "Val")
+
+    # Check if any held-out pulses/datasets leaked into train
+    leaked_pulses = train_pulses.intersection(Config.HOLDOUT_PULSES)
+    leaked_datasets = train_datasets.intersection(Config.HOLDOUT_DATASETS)
+
+    if leaked_pulses or leaked_datasets:
+        print("\n❌ Data leakage detected!")
+        if leaked_pulses:
+            print(f"Leaked pulses in train set: {sorted(leaked_pulses)}")
+        if leaked_datasets:
+            print(f"Leaked datasets in train set: {sorted(leaked_datasets)}")
+    else:
+        print("\n✅ No data leakage detected. Split looks clean.")
+
     return train_loader, val_loader
 
 from config import Config
@@ -196,12 +378,14 @@ if __name__ == "__main__":
     image_dir = Config.IMAGE_DIR
     label_dir = Config.LABEL_DIR
 
+
     train_loader, val_loader = create_ultrasound_dataloaders(
         image_dir=image_dir,
         label_dir=label_dir,
         batch_size=Config.BATCH_SIZE,
         image_size=Config.IMAGE_SIZE,
-        sequence_length=Config.SEQUENCE_LENGTH
+        sequence_length=Config.SEQUENCE_LENGTH,
+        use_augmentation=Config.USE_AUGMENTATION
     )
 
     images, labels = next(iter(train_loader))
