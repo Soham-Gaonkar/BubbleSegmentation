@@ -129,10 +129,10 @@ def train_one_epoch(model, optimizer, criterion, train_loader, epoch, config, wr
     num_batches = len(train_loader)
     for batch_idx, batch_data in enumerate(loop):
         # Ensure batch has both data and targets
-        if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 2:
+        if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 3:
              print(f"Warning: Skipping malformed batch {batch_idx+1}/{num_batches}. Expected (data, target), got: {type(batch_data)}")
              continue
-        data, targets = batch_data
+        data, targets , filename = batch_data
         data, targets = data.to(config.DEVICE), targets.to(config.DEVICE)
 
         # --- Input Shape Check (especially relevant if ConvLSTM is added back) ---
@@ -177,10 +177,10 @@ def validate_one_epoch(model, criterion, val_loader, epoch, config, writer):
     with torch.no_grad():
         for batch_idx, batch_data in enumerate(loop):
             # Ensure batch has both data and targets
-            if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 2:
+            if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 3:
                  print(f"Warning: Skipping malformed validation batch {batch_idx+1}/{num_batches}. Expected (data, target), got: {type(batch_data)}")
                  continue
-            data, targets = batch_data
+            data, targets , filename = batch_data
             data, targets = data.to(config.DEVICE), targets.to(config.DEVICE)
 
             # --- Input Shape Check ---
@@ -468,8 +468,8 @@ def visualize_predictions(model, val_loader, config, epoch, writer, num_samples=
             if images_shown >= num_samples: break
 
             # Basic batch integrity check
-            if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 2: continue
-            data, targets = batch_data
+            if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 3: continue
+            data, targets ,filename = batch_data
             data, targets = data.to(config.DEVICE), targets.to(config.DEVICE)
 
              # Basic shape check (only for non-sequential for now)

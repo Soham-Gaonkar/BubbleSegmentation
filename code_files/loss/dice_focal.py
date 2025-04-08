@@ -15,16 +15,19 @@ class DiceFocalLoss(nn.Module):
         self.smooth = smooth
 
     def forward(self, inputs, targets):
+        # Dice Loss (use probabilities)
         inputs_prob = torch.sigmoid(inputs).clamp(min=1e-7, max=1 - 1e-7)
         targets = targets.float()
 
-        # Dice Loss
-        intersection = (inputs_prob * targets).sum(dim=(2, 3))
-        total = (inputs_prob + targets).sum(dim=(2, 3))
-        dice_coeff = (2. * intersection + self.smooth) / (total + self.smooth)
-        dice_loss = 1. - dice_coeff.mean()
+        inputs_flat = inputs_prob.contiguous().view(-1)
+        targets_flat = targets.contiguous().view(-1)
 
-        # Focal Loss
+        intersection = (inputs_flat * targets_flat).sum()
+        total = inputs_flat.sum() + targets_flat.sum()
+        dice_coeff = (2. * intersection + self.smooth) / (total + self.smooth)
+        dice_loss = 1. - dice_coeff
+
+        # Focal Loss (use logits)
         bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         pt = torch.exp(-bce_loss)
         focal_loss = ((1 - pt) ** self.gamma * bce_loss).mean()

@@ -9,7 +9,13 @@ from datetime import datetime
 import warnings
 from PIL import Image # Needed for BILINEAR/NEAREST constants if used directly
 from torchvision import transforms # Needed by dataloader functions
-
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+import re
+from glob import glob
 # Import necessary components
 from config import Config
 from model import *
@@ -18,6 +24,8 @@ from metric import calculate_all_metrics
 # Import the SINGLE dataset class and transforms from your dataloader.py
 from dataloader import UltrasoundSegmentationDataset, JointTransform, Resize, Grayscale, PILToTensor # <- Correct Import
 from train import get_model, get_loss_fn, load_checkpoint # Reuse functions from train.py
+from utils import plot_metrics_vs_pulses, plot_ablation_area_comparison
+
 
 # Suppress specific warnings if needed
 warnings.filterwarnings("ignore", message="Mean of empty slice")
@@ -191,19 +199,6 @@ def evaluate(model, test_loader, criterion, config):
 
     return avg_metrics
 
-
-    # --- Aggregate Metrics ---
-    if not batch_metrics_list:
-        print("ERROR: No metrics were calculated during testing (check metric calculation errors).")
-        return {"Test_Loss": (total_test_loss / num_batches if num_batches > 0 else 0.0)}
-
-    metrics_df = pd.DataFrame(batch_metrics_list)
-    # Use nanmean to ignore NaNs during averaging (e.g., if Hausdorff failed)
-    avg_metrics_dict = metrics_df.mean(axis=0, skipna=True).to_dict()
-    avg_metrics_dict["Test_Loss"] = total_test_loss / num_batches if num_batches > 0 else 0.0
-
-    return avg_metrics_dict
-
 # --- save_metrics_to_csv and main remain the same ---
 
 def save_metrics_to_csv(metrics, config):
@@ -273,6 +268,18 @@ def main():
         for k, v in sorted_metrics.items():
             print(f"{k}: {v:.4f}" if isinstance(v, (float, np.number)) and pd.notna(v) else f"{k}: {v}")
         save_metrics_to_csv(final_metrics, config)
+        #  Assessment of the histotripsy pulse-dependence for the accuracy, Dice Similarity Coefficient, and Hausdorff distance (maximum and mean). 
+        metrics_csv_path = os.path.join("test_results", config.EXPERIMENT_NAME, "individual_metrics.csv")
+        save_dir = os.path.join("test_results", config.EXPERIMENT_NAME)
+        plot_metrics_vs_pulses(metrics_csv_path, save_dir, config.EXPERIMENT_NAME)
+        mask_dir = config.TEST_LABEL_DIR
+        plot_ablation_area_comparison(
+            mask_folder=mask_dir,
+            cnn_metrics_path=metrics_csv_path,
+            save_path=save_dir,
+            experiment_name=config.EXPERIMENT_NAME,
+            pixel_area_mm2=0.0025  # Adjust if needed
+        )
     else:
         print("Evaluation completed, but no metrics were calculated (check errors above).")
 
