@@ -100,78 +100,97 @@ def extract_2d_slice(tensor):
 def evaluate(model, test_loader, criterion, config):
     """Evaluates the model on the test set and saves visualizations."""
     model.eval()
-    batch_metrics_list = []
+    sample_metrics_list = []
     total_test_loss = 0.0
     num_batches = len(test_loader)
     if num_batches == 0:
         print("ERROR: Test loader has 0 batches. Cannot evaluate.")
-        return {} # Return empty metrics
+        return {}
 
-    # --- Setup Visualization Folder ---
     vis_folder = os.path.join("test_results", config.EXPERIMENT_NAME, "visualizations")
     os.makedirs(vis_folder, exist_ok=True)
     print(f"Saving visualizations to: {vis_folder}")
 
+    filename_pattern = r't3Label(\d+)_(\d+)_(\d+)'
+
     with torch.no_grad():
         for idx, batch_data in enumerate(tqdm(test_loader, desc="Testing")):
-            if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 2:
-                 print(f"Warning: Skipping malformed test batch {idx+1}/{num_batches}.")
-                 continue
-            data, target, filename = batch_data 
-            data, target = data.to(config.DEVICE), target.to(config.DEVICE)
-            filename = filename[0]
+            if not isinstance(batch_data, (list, tuple)) or len(batch_data) != 3:
+                print(f"Warning: Skipping malformed test batch {idx+1}/{num_batches}.")
+                continue
 
-            # --- Input/Target Shape Check (using config.SEQUENCE_LENGTH) ---
+            data, target, filename = batch_data 
+            filename = filename[0]  # batch_size=1
+            data, target = data.to(config.DEVICE), target.to(config.DEVICE)
+
             expected_dims = 5 if config.SEQUENCE_LENGTH > 1 else 4
             if data.ndim != expected_dims:
                 print(f"Warning: Test Batch {idx+1}: Unexpected INPUT data dimension. Got {data.ndim}, expected {expected_dims}. Skipping batch.")
                 continue
-            if target.ndim != 4: # Target should *always* be (B, 1, H, W) now
-                print(f"Warning: Test Batch {idx+1}: Unexpected TARGET dimension. Got {target.ndim}, expected 4 (B, 1, H, W). Skipping batch.")
+            if target.ndim != 4:
+                print(f"Warning: Test Batch {idx+1}: Unexpected TARGET dimension. Got {target.ndim}, expected 4. Skipping batch.")
                 continue
-            # --- End Shape Check ---
 
-            # --- Forward Pass & Loss ---
-            pred_logits = model(data) # Model handles seq or single frame input
-            # Loss expects (B, 1, H, W) for both pred and target
+            # Forward pass and compute loss
+            pred_logits = model(data)
             loss = criterion(pred_logits, target)
             total_test_loss += loss.item()
 
-            # --- Calculate Metrics ---
+            # Extract number of pulses from filename
+            match = re.match(filename_pattern, filename)
+            pulses = int(match.group(1)) * 20 if match else None
+
+            # Compute metrics
             try:
-                # Ensure target is float for metric calculation
                 metrics = calculate_all_metrics(pred_logits, target.float(), threshold=0.5)
-                batch_metrics_list.append(metrics)
+                metrics['pulses'] = pulses
+                metrics['filename'] = filename
+                sample_metrics_list.append(metrics)
             except Exception as e:
                 print(f"Error calculating metrics for test batch {idx+1}: {e}")
 
-            # --- Visualization ---
+            # Visualization preparation
             pred_prob = torch.sigmoid(pred_logits)
             pred_binary = (pred_prob > 0.5).float()
 
-            # Select frame to visualize (last input frame if sequence)
             data_vis = data[:, -1] if data.ndim == 5 else data
-            # Extract 2D slices for plotting
             img_np = extract_2d_slice(data_vis)
-            gt_np = extract_2d_slice(target) # Target is already (B, 1, H, W)
+            gt_np = extract_2d_slice(target)
             pred_np = extract_2d_slice(pred_binary)
 
-            # Create and save plot
+            # Save visualizations with clear filename
             try:
-                fig, axs = plt.subplots(1, 3, figsize=(12, 4)) # 1 row, 3 columns
+                fig, axs = plt.subplots(1, 3, figsize=(12, 4))
                 axs[0].imshow(img_np, cmap='gray', vmin=0, vmax=1); axs[0].set_title("Input Image")
                 axs[1].imshow(gt_np, cmap='gray', vmin=0, vmax=1); axs[1].set_title("Ground Truth")
                 axs[2].imshow(pred_np, cmap='gray', vmin=0, vmax=1); axs[2].set_title("Prediction")
                 for ax in axs: ax.axis("off")
-                plt.suptitle(f"Sample {idx+1}", fontsize=10)
+                plt.suptitle(f"{filename}", fontsize=10)
                 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-                # Save predictions clearly with original filename
+
                 base_filename, _ = os.path.splitext(filename)
                 plt.savefig(os.path.join(vis_folder, f"{base_filename}_pred.png"), dpi=150, bbox_inches='tight')
             except Exception as e:
-                 print(f"Error saving visualization for sample {idx+1}: {e}")
+                print(f"Error saving visualization for sample {idx+1}: {e}")
             finally:
-                 plt.close(fig)
+                plt.close(fig)
+
+    # Save individual metrics clearly for further plotting
+    metrics_df = pd.DataFrame(sample_metrics_list)
+    metrics_csv_path = os.path.join("test_results", config.EXPERIMENT_NAME, "individual_metrics.csv")
+    metrics_df.to_csv(metrics_csv_path, index=False)
+    print(f"Saved individual sample metrics to {metrics_csv_path}")
+
+    # Aggregate average metrics
+    if not sample_metrics_list:
+        print("ERROR: No metrics calculated.")
+        return {"Test_Loss": total_test_loss / num_batches if num_batches > 0 else 0.0}
+
+    avg_metrics = metrics_df.mean(axis=0, skipna=True).to_dict()
+    avg_metrics["Test_Loss"] = total_test_loss / num_batches
+
+    return avg_metrics
+
 
     # --- Aggregate Metrics ---
     if not batch_metrics_list:
