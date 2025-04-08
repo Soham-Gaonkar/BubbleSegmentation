@@ -165,7 +165,9 @@ def evaluate(model, test_loader, criterion, config):
                 for ax in axs: ax.axis("off")
                 plt.suptitle(f"Sample {idx+1}", fontsize=10)
                 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-                plt.savefig(os.path.join(vis_folder, f"sample_{idx+1}.png"), dpi=150, bbox_inches='tight')
+                # Save predictions clearly with original filename
+                base_filename, _ = os.path.splitext(filename)
+                plt.savefig(os.path.join(vis_folder, f"{base_filename}_pred.png"), dpi=150, bbox_inches='tight')
             except Exception as e:
                  print(f"Error saving visualization for sample {idx+1}: {e}")
             finally:
