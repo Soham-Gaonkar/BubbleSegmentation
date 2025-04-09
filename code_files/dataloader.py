@@ -73,7 +73,7 @@ class UltrasoundSegmentationDataset(Dataset):
 
         all_image_files = sorted([f for f in os.listdir(image_dir) if f.endswith('.jpg')])
 
-        # ✅ Only keep allowed files
+        # Only keep allowed files
         if allowed_image_files is not None:
             self.image_files = [f for f in all_image_files if f in allowed_image_files]
         else:
@@ -325,7 +325,7 @@ def create_ultrasound_dataloaders(image_dir, label_dir, batch_size=16, val_split
     # train_dataset.samples = [s for s in train_dataset.samples if s[0][-1] in split_result["train"]]
     # val_dataset.samples = [s for s in val_dataset.samples if s[0][-1] in split_result["val"]]
 
-    # ✅ Set transforms directly
+    # Set transforms directly
     # train_dataset.transform = tensor_transforms
     # val_dataset.transform = tensor_transforms
 
@@ -361,13 +361,13 @@ def create_ultrasound_dataloaders(image_dir, label_dir, batch_size=16, val_split
     leaked_datasets = train_datasets.intersection(Config.HOLDOUT_DATASETS)
 
     if leaked_pulses or leaked_datasets:
-        print("\n❌ Data leakage detected!")
+        print("\nData leakage detected!")
         if leaked_pulses:
             print(f"Leaked pulses in train set: {sorted(leaked_pulses)}")
         if leaked_datasets:
             print(f"Leaked datasets in train set: {sorted(leaked_datasets)}")
     else:
-        print("\n✅ No data leakage detected. Split looks clean.")
+        print("\nNo data leakage detected. Split looks clean.")
 
     return train_loader, val_loader
 
@@ -388,8 +388,8 @@ if __name__ == "__main__":
         use_augmentation=Config.USE_AUGMENTATION
     )
 
-    images, labels = next(iter(train_loader))
+    images, labels, _ = next(iter(train_loader))
     print(f"Train - Images: {images.shape}, Labels: {labels.shape}")
-    images, labels = next(iter(val_loader))
+    images, labels, _ = next(iter(val_loader))
     print(f"Val - Images: {images.shape}, Labels: {labels.shape}")
     print("Dataloader ready!")

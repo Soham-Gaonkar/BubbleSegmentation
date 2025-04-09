@@ -155,3 +155,41 @@ def plot_ablation_area_comparison(
     plt.close()
 
     print(f"Ablation area comparison plot saved to {final_path}")
+
+
+import cv2
+import numpy as np
+import torch
+
+def postprocess_mask(mask_tensor, min_size=100):
+    """
+    Remove small connected components from binary mask.
+    Args:
+        mask_tensor (torch.Tensor): Shape [1, H, W] or [H, W]
+        min_size (int): Minimum pixel area to keep.
+    Returns:
+        torch.Tensor: Cleaned mask with small blobs removed.
+    """
+    mask_np = mask_tensor.cpu().numpy().squeeze().astype(np.uint8)
+
+    num_components, output, stats, _ = cv2.connectedComponentsWithStats(mask_np, connectivity=8)
+
+    cleaned_mask = np.zeros_like(mask_np)
+    for i in range(1, num_components):  # skip background
+        if stats[i, cv2.CC_STAT_AREA] >= min_size:
+            cleaned_mask[output == i] = 1
+
+    return torch.tensor(cleaned_mask).unsqueeze(0).float()
+
+
+def to_grayscale_numpy(tensor):
+    """
+    Converts a [1, H, W] or [H, W] tensor to (H, W) NumPy array for imshow.
+    """
+    if isinstance(tensor, torch.Tensor):
+        tensor = tensor.squeeze().cpu()
+        return tensor.numpy()
+    elif isinstance(tensor, np.ndarray):
+        return np.squeeze(tensor)
+    else:
+        raise TypeError(f"Unsupported type for conversion: {type(tensor)}")

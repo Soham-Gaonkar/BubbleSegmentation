@@ -16,8 +16,7 @@ from loss import *  # Imports __init__.py which should import all loss classes
 # Import the consolidated metrics function
 from metric import calculate_all_metrics
 from dataloader import create_ultrasound_dataloaders
-from utils import freeze_resnet_layers  # <== Add at top
-
+from utils import freeze_resnet_layers, to_grayscale_numpy
 
 # Suppress specific warnings if needed
 warnings.filterwarnings("ignore", message="Mean of empty slice")
@@ -91,6 +90,11 @@ def get_model(config):
             batch_first=config.CONVLSTM_BATCH_FIRST
         )
         print(f"ConvLSTM - Hidden Dims: {config.CONVLSTM_HIDDEN_DIMS}, Initial CNN Out: {config.CONVLSTM_INITIAL_CNN_OUT_CHANNELS}, Batch First: {config.CONVLSTM_BATCH_FIRST}")
+    elif model_name == "SimpleUNetMini":
+        model = SimpleUNetMini(
+            in_channels=in_channels,
+            num_classes=num_classes
+        )
 
     else:
         raise ValueError(f"Invalid or unsupported model name in config: '{model_name}'")
@@ -182,15 +186,12 @@ def train_one_epoch(model, optimizer, criterion, train_loader, epoch, config, wr
         if config.MODEL_NAME == "ConvLSTM":
             targets = targets[:, -1, :, :]
 
-        # Forward
-        predictions = model(data)
-        loss = criterion(predictions, targets)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 
-        
-        # Backward and optimize
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad()                         # 1. Clear old gradients
+        predictions = model(data)                     # 2. Forward pass
+        loss = criterion(predictions, targets)        # 3. Compute loss
+        loss.backward()                               # 4. Compute gradients (now they're populated!)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 5. Now clip them
+        optimizer.step()                              # 6. Update weights
 
         total_loss += loss.item()
 
@@ -218,6 +219,27 @@ def validate_one_epoch(model, criterion, val_loader, epoch, config, writer):
             data, targets , filename = batch_data
             data, targets = data.to(config.DEVICE), targets.to(config.DEVICE)
 
+            # --- NaN/Corruption Check ---
+            if torch.isnan(data).any():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ NaNs in input images!")
+                break
+
+            if torch.isnan(targets).any():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ NaNs in target labels!")
+                break
+
+            if targets.max() > 1 or targets.min() < 0:
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Target labels out of range: min={targets.min().item()}, max={targets.max().item()}")
+                break
+
+            if torch.isinf(data).any():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Infs detected in input images!")
+                break
+
+            if torch.isinf(targets).any():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Infs detected in target labels!")
+                break
+
             # --- Input Shape Check ---
             expected_dims = 5 if config.MODEL_NAME == "ConvLSTM" else 4
             if data.ndim != expected_dims:
@@ -243,8 +265,12 @@ def validate_one_epoch(model, criterion, val_loader, epoch, config, writer):
             predictions = model(data)
             if torch.isnan(predictions).any():
                 print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] NaNs in predictions!")
-            if (predictions.abs() > 1e6).any():
-                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] Extremely large logits in predictions!")
+            if (predictions.abs() > 1e6).any().item():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Logits too large!")
+
+            if (predictions.abs() < 1e-6).any().item():
+                print(f"[Epoch {epoch+1}][Batch {batch_idx+1}] ⚠ Logits too close to zero!")
+
 
             loss = criterion(predictions, targets)
             total_val_loss += loss.item()
@@ -476,7 +502,7 @@ def main():
             #     save_checkpoint(model, optimizer, filename=best_path)
             #     print(f"[*] New best model saved at {best_path} (Val Loss: {best_val_loss:.4f})")
 
-            if val_loss < best_val_loss - config.DELTA:
+            if val_loss < best_val_loss - 1e-6:
                 best_val_loss = val_loss
                 epochs_no_improve = 0
                 best_path = os.path.join(model_ckpt_dir, "best.pth.tar")
@@ -490,8 +516,6 @@ def main():
                 if config.EARLY_STOPPING and epochs_no_improve >= config.PATIENCE:
                     print(f"\n[Early Stopping] No improvement for {config.PATIENCE} epochs. Stopping training.")
                     break
-
-
 
         # --- Visualize Predictions ---
         if (epoch + 1) % config.VISUALIZE_EVERY == 0:
@@ -560,17 +584,17 @@ def visualize_predictions(model, val_loader, config, epoch, writer, num_samples=
                 pred_np_binary = extract_2d_slice(outputs_binary[i])
 
                 # Plot Image in column 0 of the current row
-                axs[images_shown, 0].imshow(img_np, cmap='gray', vmin=0, vmax=1)
+                axs[images_shown, 0].imshow(to_grayscale_numpy(img_np), cmap='gray', vmin=0, vmax=1)
                 axs[images_shown, 0].set_title(f"Image {images_shown+1}")
                 axs[images_shown, 0].axis("off") # Re-enable axis for this plot
 
                 # Plot Ground Truth in column 1
-                axs[images_shown, 1].imshow(label_np, cmap='gray', vmin=0, vmax=1)
+                axs[images_shown, 1].imshow(to_grayscale_numpy(label_np), cmap='gray', vmin=0, vmax=1)
                 axs[images_shown, 1].set_title(f"GT {images_shown+1}")
                 axs[images_shown, 1].axis("off")
 
                 # Plot Prediction in column 2
-                axs[images_shown, 2].imshow(pred_np_binary, cmap='gray', vmin=0, vmax=1)
+                axs[images_shown, 2].imshow(to_grayscale_numpy(pred_np_binary), cmap='gray', vmin=0, vmax=1)
                 axs[images_shown, 2].set_title(f"Pred {images_shown+1}")
                 axs[images_shown, 2].axis("off")
 

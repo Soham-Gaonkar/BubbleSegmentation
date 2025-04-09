@@ -24,7 +24,7 @@ class DiceFocalLoss(nn.Module):
 
         intersection = (inputs_flat * targets_flat).sum()
         total = inputs_flat.sum() + targets_flat.sum()
-        dice_coeff = (2. * intersection + self.smooth) / (total + self.smooth)
+        dice_coeff = (2. * intersection + self.smooth) / (total + self.smooth + 1e-6)
         dice_loss = 1. - dice_coeff
 
         # Focal Loss (use logits)

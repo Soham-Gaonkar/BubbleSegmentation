@@ -20,8 +20,7 @@ from metric import calculate_all_metrics
 # Import the SINGLE dataset class and transforms from your dataloader.py
 from dataloader import UltrasoundSegmentationDataset, JointTransform, Resize, Grayscale, PILToTensor # <- Correct Import
 from train import get_model, get_loss_fn, load_checkpoint # Reuse functions from train.py
-from utils import plot_metrics_vs_pulses, plot_ablation_area_comparison
-
+from utils import plot_metrics_vs_pulses, plot_ablation_area_comparison,postprocess_mask, to_grayscale_numpy
 
 # Suppress specific warnings if needed
 warnings.filterwarnings("ignore", message="Mean of empty slice")
@@ -126,7 +125,7 @@ def evaluate(model, test_loader, criterion, config):
             data, target, filename = batch_data 
             filename = filename[0]  # batch_size=1
             data, target = data.to(config.DEVICE), target.to(config.DEVICE)
-
+            print("Input shape to model:", data.shape)
             expected_dims = 5 if config.SEQUENCE_LENGTH > 1 else 4
             if data.ndim != expected_dims:
                 print(f"Warning: Test Batch {idx+1}: Unexpected INPUT data dimension. Got {data.ndim}, expected {expected_dims}. Skipping batch.")
@@ -146,12 +145,21 @@ def evaluate(model, test_loader, criterion, config):
 
             # Compute metrics and ablation area
             try:
+                # pred_prob = torch.sigmoid(pred_logits)
+                # pred_binary = (pred_prob > 0.5).float()
+
                 pred_prob = torch.sigmoid(pred_logits)
                 pred_binary = (pred_prob > 0.5).float()
+
+                if config.APPLY_POSTPROCESSING:
+                    pred_binary = postprocess_mask(pred_binary[0], min_size=config.MIN_COMPONENT_SIZE)
+                    pred_binary = pred_binary.unsqueeze(0)  # back to [B, 1, H, W]
 
                 metrics = calculate_all_metrics(pred_logits, target.float(), threshold=0.5)
                 metrics['pulses'] = pulses
                 metrics['filename'] = filename
+                metrics['post_processed'] = config.APPLY_POSTPROCESSING
+
 
                 # Compute ablation area from prediction
                 pred_np = extract_2d_slice(pred_binary)
@@ -176,9 +184,9 @@ def evaluate(model, test_loader, criterion, config):
             # Save visualizations with clear filename
             try:
                 fig, axs = plt.subplots(1, 3, figsize=(12, 4))
-                axs[0].imshow(img_np, cmap='gray', vmin=0, vmax=1); axs[0].set_title("Input Image")
-                axs[1].imshow(gt_np, cmap='gray', vmin=0, vmax=1); axs[1].set_title("Ground Truth")
-                axs[2].imshow(pred_np, cmap='gray', vmin=0, vmax=1); axs[2].set_title("Prediction")
+                axs[0].imshow(to_grayscale_numpy(img_np), cmap='gray', vmin=0, vmax=1); axs[0].set_title("Input Image")
+                axs[1].imshow(to_grayscale_numpy(gt_np), cmap='gray', vmin=0, vmax=1); axs[1].set_title("Ground Truth")
+                axs[2].imshow(to_grayscale_numpy(pred_np), cmap='gray', vmin=0, vmax=1); axs[2].set_title("Prediction")
                 for ax in axs: ax.axis("off")
                 plt.suptitle(f"{filename}", fontsize=10)
                 plt.tight_layout(rect=[0, 0.03, 1, 0.95])

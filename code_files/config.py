@@ -15,20 +15,20 @@ class Config:
 
     # Training
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    LEARNING_RATE = float(os.getenv("LEARNING_RATE", 1e-4))  
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 4))             
+    LEARNING_RATE = float(os.getenv("LEARNING_RATE", 1e-3)) # 1e-4 
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 8))             
     NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 30))           
-    WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", 1e-5))
+    WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", 1e-4))# 1e-5
 
     # Optimizer
     OPTIMIZER = os.getenv("OPTIMIZER", "Adam")
     USE_SCHEDULER = os.getenv("USE_SCHEDULER", "True").lower() == "true"
     SGD_MOMENTUM = float(os.getenv("SGD_MOMENTUM", 0.9))
-    SCHEDULER_STEP_SIZE = int(os.getenv("SCHEDULER_STEP_SIZE", 100))
-    SCHEDULER_GAMMA = float(os.getenv("SCHEDULER_GAMMA", 0.1))
+    SCHEDULER_STEP_SIZE = int(os.getenv("SCHEDULER_STEP_SIZE", 20))
+    SCHEDULER_GAMMA = float(os.getenv("SCHEDULER_GAMMA", 0.5))# 0.1
 
     # Model
-    # Options: ResNet18CNN, AttentionUNet, DeepLabV3Plus, ConvLSTM
+    # Options: ResNet18CNN, AttentionUNet, DeepLabV3Plus, ConvLSTM , SimpleUNetMini
     MODEL_NAME = os.getenv("MODEL_NAME", "ResNet18CNN")
     SEQUENCE_LENGTH = 3 if MODEL_NAME == "ConvLSTM" else 1
     PRETRAINED = os.getenv("PRETRAINED", "False").lower() == "true"
@@ -40,19 +40,19 @@ class Config:
 
     # Loss
     # Options: DiceFocalLoss, DiceLoss, AsymmetricFocalTverskyLoss, SoftIoULoss
-    LOSS_FN = os.getenv("LOSS_FN", "AsymmetricFocalTverskyLoss")
+    LOSS_FN = os.getenv("LOSS_FN", "DiceFocalLoss")
     LOSS_ALPHA = float(os.getenv("LOSS_ALPHA", 0.3))
     LOSS_BETA = float(os.getenv("LOSS_BETA", 0.7))
-    LOSS_GAMMA = float(os.getenv("LOSS_GAMMA", 0.75))
+    LOSS_GAMMA = float(os.getenv("LOSS_GAMMA", 2.0 ))# 0. 75
     LOSS_SMOOTH = float(os.getenv("LOSS_SMOOTH", 1e-5))
 
     # Early stopping settings
     EARLY_STOPPING = True
     PATIENCE = 5            # Number of epochs to wait before stopping
-    DELTA = 1e-5           # Minimum change in validation loss to qualify as improvement
+    DELTA = 1e-4           # Minimum change in validation loss to qualify as improvement
 
     SPLIT_TYPE = "pulse_dataset"  # Options: random, pulse, dataset, pulse_dataset
-    HOLDOUT_DATASETS = [5]        # Dataset numbers to hold out
+    HOLDOUT_DATASETS = [2]        # Dataset numbers to hold out
     HOLDOUT_PULSES = [30, 50, 70 , 90] # Pulse numbers to hold out
 
     # SPLIT_TYPE = "random"  # or "pulse_dataset" or "dataset"
@@ -60,12 +60,15 @@ class Config:
     # HOLDOUT_DATASETS = []
     # HOLDOUT_PULSES = []
 
+    APPLY_POSTPROCESSING = False
+    MIN_COMPONENT_SIZE = 100
+
     USE_AUGMENTATION = True
 
     DROPOUT_PROB = 0.5
     # PRETRAINED = os.getenv("PRETRAINED", "False").lower() == "true"
-    PRETRAINED = True
-    FREEZE_BACKBONE = True
+    PRETRAINED = False
+    FREEZE_BACKBONE = False
     FREEZE_UNTIL = 'encoder_layer2'
 
     # Logging
