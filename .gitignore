@@ -6,7 +6,6 @@ code_files/logs/
 venv/
 
 code_files/test_results/
-Data/
 
 code_files/checkpoints/
 .lightning_studio/
@@ -14,4 +13,3 @@ code_files/checkpoints/
 .vscode
 
 code_files/model
-Data/
