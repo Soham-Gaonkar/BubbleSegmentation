@@ -15,9 +15,9 @@ class Config:
 
     # Training
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    LEARNING_RATE = float(os.getenv("LEARNING_RATE", 1e-3)) # 1e-4 
+    LEARNING_RATE = float(os.getenv("LEARNING_RATE", 3e-4)) # 1e-4 
     BATCH_SIZE = int(os.getenv("BATCH_SIZE", 8))             
-    NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 30))           
+    NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 6))           
     WEIGHT_DECAY = float(os.getenv("WEIGHT_DECAY", 1e-4))# 1e-5
 
     # Optimizer
@@ -29,7 +29,7 @@ class Config:
 
     # Model
     # Options: ResNet18CNN, AttentionUNet, DeepLabV3Plus, ConvLSTM , SimpleUNetMini
-    MODEL_NAME = os.getenv("MODEL_NAME", "ResNet18CNN")
+    MODEL_NAME = os.getenv("MODEL_NAME", "HRNetBinary")
     SEQUENCE_LENGTH = 3 if MODEL_NAME == "ConvLSTM" else 1
     PRETRAINED = os.getenv("PRETRAINED", "False").lower() == "true"
     DEEPLAB_OUTPUT_STRIDE = int(os.getenv("DEEPLAB_OUTPUT_STRIDE", 16))
@@ -40,7 +40,7 @@ class Config:
 
     # Loss
     # Options: DiceFocalLoss, DiceLoss, AsymmetricFocalTverskyLoss, SoftIoULoss
-    LOSS_FN = os.getenv("LOSS_FN", "DiceFocalLoss")
+    LOSS_FN = os.getenv("LOSS_FN", "AsymmetricFocalTverskyLoss")
     LOSS_ALPHA = float(os.getenv("LOSS_ALPHA", 0.3))
     LOSS_BETA = float(os.getenv("LOSS_BETA", 0.7))
     LOSS_GAMMA = float(os.getenv("LOSS_GAMMA", 2.0 ))# 0. 75
@@ -50,17 +50,17 @@ class Config:
     EARLY_STOPPING = True
     PATIENCE = 5            # Number of epochs to wait before stopping
     DELTA = 1e-4           # Minimum change in validation loss to qualify as improvement
-
+    WEIGHTED_IOU_WEIGHT = float(os.getenv("WEIGHTED_IOU_WEIGHT", 2.0))
     SPLIT_TYPE = "pulse_dataset"  # Options: random, pulse, dataset, pulse_dataset
     HOLDOUT_DATASETS = [2]        # Dataset numbers to hold out
-    HOLDOUT_PULSES = [30, 50, 70 , 90] # Pulse numbers to hold out
+    HOLDOUT_PULSES = [] # Pulse numbers to hold out
 
     # SPLIT_TYPE = "random"  # or "pulse_dataset" or "dataset"
     VAL_RATIO = 0.10
     # HOLDOUT_DATASETS = []
     # HOLDOUT_PULSES = []
 
-    APPLY_POSTPROCESSING = False
+    APPLY_POSTPROCESSING = True
     MIN_COMPONENT_SIZE = 100
 
     USE_AUGMENTATION = True

@@ -7,8 +7,8 @@ from config import Config
 # model_names = ["ResNet18CNN", "SimpleUNetMini","AttentionUNet", "DeepLabV3Plus", "ConvLSTM"]
 # loss_functions = ["DiceLoss", "DiceFocalLoss", "AsymmetricFocalTverskyLoss", "SoftIoULoss"]
 
-model_names = ["ResNet18CNN"]
-loss_functions = ["DiceLoss","DiceFocalLoss","AsymmetricFocalTverskyLoss"]
+model_names = ["AttentionUNet"]
+loss_functions = ["DiceFocalLoss","AsymmetricFocalTverskyLoss"]
 
 for model_name, loss_fn in itertools.product(model_names, loss_functions):
     print(f"\n===== Running: Model = {model_name}, Loss = {loss_fn} =====")

@@ -125,7 +125,6 @@ def evaluate(model, test_loader, criterion, config):
             data, target, filename = batch_data 
             filename = filename[0]  # batch_size=1
             data, target = data.to(config.DEVICE), target.to(config.DEVICE)
-            print("Input shape to model:", data.shape)
             expected_dims = 5 if config.SEQUENCE_LENGTH > 1 else 4
             if data.ndim != expected_dims:
                 print(f"Warning: Test Batch {idx+1}: Unexpected INPUT data dimension. Got {data.ndim}, expected {expected_dims}. Skipping batch.")

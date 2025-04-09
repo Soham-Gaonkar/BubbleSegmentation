@@ -17,6 +17,17 @@ from loss import *  # Imports __init__.py which should import all loss classes
 from metric import calculate_all_metrics
 from dataloader import create_ultrasound_dataloaders
 from utils import freeze_resnet_layers, to_grayscale_numpy
+from utils import initialize_weights 
+from utils import EarlyStopping
+
+early_stopper = EarlyStopping(
+    patience=Config.PATIENCE,
+    monitor='val_iou',
+    mode='max',  # use 'min' if you're monitoring a loss
+    path='best_model.pt'
+)
+
+
 
 # Suppress specific warnings if needed
 warnings.filterwarnings("ignore", message="Mean of empty slice")
@@ -95,12 +106,24 @@ def get_model(config):
             in_channels=in_channels,
             num_classes=num_classes
         )
+    elif model_name == "HRNetBinary":
+        model = HRNetBinary(
+            in_channels=in_channels,
+            num_classes=num_classes
+        )
+        print(f"HRNetBinary - In Channels: {in_channels}, Num Classes: {num_classes}")
 
     else:
         raise ValueError(f"Invalid or unsupported model name in config: '{model_name}'")
 
+
     print("--- Model Initialized ---")
+    # initialize_weights(model)  # <--- Add this line
+    if not config.PRETRAINED:
+        initialize_weights(model)
+
     return model.to(config.DEVICE)
+
 
 def get_loss_fn(config):
     """Initializes the loss function based on the configuration."""
@@ -502,24 +525,56 @@ def main():
             #     save_checkpoint(model, optimizer, filename=best_path)
             #     print(f"[*] New best model saved at {best_path} (Val Loss: {best_val_loss:.4f})")
 
-            if val_loss < best_val_loss - 1e-6:
-                best_val_loss = val_loss
-                epochs_no_improve = 0
-                best_path = os.path.join(model_ckpt_dir, "best.pth.tar")
-                save_checkpoint(model, optimizer, filename=best_path)
-                print(f"[*] New best model saved at {best_path} (Val Loss: {best_val_loss:.4f})")
-            else:
-                epochs_no_improve += 1
-                print(f"[!] No improvement in val loss for {epochs_no_improve} epoch(s).")
+            # if val_loss < best_val_loss - config.DELTA:
+            #     best_val_loss = val_loss
+            #     epochs_no_improve = 0
+            #     best_path = os.path.join(model_ckpt_dir, "best.pth.tar")
+            #     save_checkpoint(model, optimizer, filename=best_path)
+            #     print(f"[*] New best model saved at {best_path} (Val Loss: {best_val_loss:.4f})")
+            # else:
+            #     epochs_no_improve += 1
+            #     print(f"[!] No improvement in val loss for {epochs_no_improve} epoch(s).")
 
-                # --- Early Stopping ---
-                if config.EARLY_STOPPING and epochs_no_improve >= config.PATIENCE:
-                    print(f"\n[Early Stopping] No improvement for {config.PATIENCE} epochs. Stopping training.")
+            #     # --- Early Stopping ---
+            #     if config.EARLY_STOPPING and epochs_no_improve >= config.PATIENCE:
+            #         print(f"\n[Early Stopping] No improvement for {config.PATIENCE} epochs. Stopping training.")
+            #         break
+
+            # val_iou = avg_val_metrics.get("IoU", None)  # Adjust key name if it's 'val_iou' or 'IoU Score'
+
+            # if val_iou is not None:
+            #     early_stopper(val_iou, model)
+
+            #     if early_stopper.early_stop:
+            #         print(f"\n[Early Stopping] Validation IoU did not improve for {config.PATIENCE} epochs. Stopping training.")
+            #         break
+            # else:
+            #     print("[Warning] Validation IoU not found in metrics. Skipping early stopping check.")
+
+            val_iou = avg_val_metrics.get("IoU", None)
+
+            if val_iou is not None:
+                early_stopper(val_iou, model)
+
+                if early_stopper.best_score == val_iou:
+                    # Save best model manually in your usual format
+                    best_path = os.path.join(model_ckpt_dir, "best.pth.tar")
+                    save_checkpoint(model, optimizer, filename=best_path)
+                    print(f"[*] Best model updated and saved to {best_path} (Val IoU: {val_iou:.4f})")
+
+                if early_stopper.early_stop:
+                    print(f"\n[Early Stopping] Validation IoU did not improve for {config.PATIENCE} epochs. Stopping training.")
                     break
+
 
         # --- Visualize Predictions ---
         if (epoch + 1) % config.VISUALIZE_EVERY == 0:
             visualize_predictions(model, val_loader, config, epoch, writer, num_samples=10)
+
+    best_model_path = 'best_model.pt'
+    if os.path.exists(best_model_path):
+        print(f"Loading best model from {best_model_path} for final evaluation...")
+        model.load_state_dict(torch.load(best_model_path))
 
     writer.close()
     print("--- Training Finished ---")

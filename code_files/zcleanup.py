@@ -2,6 +2,10 @@ import os
 import shutil
 from config import Config
 
+# utils.py
+import torch.nn as nn
+
+
 def delete_experiment_dirs():
     # Get experiment-specific subdirectory names from config
     experiment_name = Config.EXPERIMENT_NAME
